@@ -1,11 +1,51 @@
 import logging
+import os
+
+import requests
+from dotenv import load_dotenv
+from requests.exceptions import ConnectionError, RequestException, Timeout
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(name=__name__)
 
+# load URL BASE from .env file
+load_dotenv()
+CALLER_APP_ENV = os.getenv("CALLER_APP_ENV")
+# adjust based on whether we run the function app locally or on Azure
+if CALLER_APP_ENV == "LOCAL":
+    URL_BASE = os.getenv("CALLER_APP_URL_BASE_LOCAL")
+else:
+    URL_BASE = os.getenv("CALLER_APP_URL_BASE_AZURE")
+logger.info(f"Function App URL is {CALLER_APP_ENV}: {URL_BASE}")
+
 
 def main():
     logger.info("Hello from the external-caller-app!")
+    endpoint = "httpexample"
+    url = URL_BASE + endpoint
+    try:
+        response = requests.get(url, timeout=10)
+        logger.info(response.status_code)
+        response.raise_for_status()
+        data = response.json()
+        logger.info(f"Response from Function App: {response.text}")
+
+    except Timeout:
+        # Handle timeout specifically
+        logger.error("Request timed out")
+
+    except ConnectionError:
+        # Handle connection issues (DNS failure, refused connection, etc.)
+        logger.error("Connection failed")
+
+    except requests.exceptions.HTTPError as e:
+        # Handle HTTP errors (4xx, 5xx)
+        logger.error(f"HTTP error occurred: {e}")
+        logger.error(f"Status code: {response.status_code}")
+
+    except RequestException as e:
+        # Catch-all for any other requests-related errors
+        logger.error(f"Request failed: {e}")
 
 
 if __name__ == "__main__":
