@@ -12,22 +12,29 @@ logger = logging.getLogger(name=__name__)
 load_dotenv()
 CALLER_APP_ENV = os.getenv("CALLER_APP_ENV")
 # adjust based on whether we run the function app locally or on Azure
-if CALLER_APP_ENV == "LOCAL":
-    URL_BASE = os.getenv("CALLER_APP_URL_BASE_LOCAL")
-else:
-    URL_BASE = os.getenv("CALLER_APP_URL_BASE_AZURE")
+URL_BASE = (
+    os.getenv("CALLER_APP_URL_BASE_LOCAL")
+    if CALLER_APP_ENV == "LOCAL"
+    else os.getenv("CALLER_APP_URL_BASE_AZURE")
+)
 logger.info(f"Function App URL is {CALLER_APP_ENV}: {URL_BASE}")
 
 
-def main():
-    logger.info("Hello from the external-caller-app!")
-    endpoint = "httpexample"
-    url = URL_BASE + endpoint
+def get_request(url: str, params: dict) -> str:
+    """Send a get request to the URL specified.
+
+    Args:
+        url (str): URL to send GET request to.
+        params (dict): Dictionary of query parameters.
+
+    Returns:
+        str: Text received with the response.
+    """
     try:
-        response = requests.get(url, timeout=10)
-        logger.info(response.status_code)
+        response = requests.get(url, timeout=10, params=params)
+        logger.info(f"Response status code: {response.status_code}")
         response.raise_for_status()
-        data = response.json()
+        data = response.text
         logger.info(f"Response from Function App: {response.text}")
 
     except Timeout:
@@ -46,6 +53,16 @@ def main():
     except RequestException as e:
         # Catch-all for any other requests-related errors
         logger.error(f"Request failed: {e}")
+
+    return data if data else ""
+
+
+def main():
+    logger.info("Hello from the external-caller-app!")
+    endpoint = "httpexample"
+    url = URL_BASE + endpoint
+    params = {"name": "Bjoern"}
+    data = get_request(url, params)
 
 
 if __name__ == "__main__":
