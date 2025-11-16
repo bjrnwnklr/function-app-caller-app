@@ -74,12 +74,13 @@ def get_request(url: str, params: dict) -> requests.Response:
         return fallback
 
 
-def post_request(url: str, payload: object, params: dict) -> requests.Response:
+def post_request(url: str, payload: dict, params: dict) -> requests.Response:
     """Send a post request to the provided URL.
 
     Args:
         url (str): URL endpoint to call
-        payload (str): json object to send as body of the POST request
+        payload (dict): dictionary to send as body of the POST request.
+            Will be converted to JSON as part of the POST request.
         params (dict): Dictionary of parameters to send.
 
     Returns:
