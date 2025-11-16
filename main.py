@@ -34,9 +34,9 @@ def get_request(url: str, params: dict) -> requests.Response:
     fallback = requests.Response()  # ensure we always return a Response object
     try:
         resp = requests.get(url, timeout=10, params=params)
-        logger.info(f"Response status code: {resp.status_code}")
+        logger.debug(f"Response status code: {resp.status_code}")
         resp.raise_for_status()
-        logger.info(f"Response text from Function App: {resp.text}")
+        logger.debug(f"Response text from Function App: {resp.text}")
         return resp
 
     except Timeout:
@@ -88,10 +88,10 @@ def post_request(url: str, payload: object, params: dict) -> requests.Response:
     """
     fallback = requests.Response()  # ensure we always return a Response object
     try:
-        resp = requests.post(url, data=payload, timeout=10, params=params)
-        logger.info(f"Response status code: {resp.status_code}")
+        resp = requests.post(url, json=payload, timeout=10, params=params)
+        logger.debug(f"Response status code: {resp.status_code}")
         resp.raise_for_status()
-        logger.info(f"Response text from Function App: {resp.text}")
+        logger.debug(f"Response text from Function App: {resp.text}")
         return resp
 
     except Timeout:
@@ -141,7 +141,7 @@ def create_numbers(n: int = 10, digits: int = 8) -> list[int]:
     """
     # create a random list of numbers
     numbers = [random.randint(0, int("1" + digits * "0")) for _ in range(n)]
-    logger.info(f"Created {len(numbers)} random numbers, first number: {numbers[0]}")
+    logger.debug(f"Created {len(numbers)} random numbers, first number: {numbers[0]}")
     return numbers
 
 
