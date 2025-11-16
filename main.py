@@ -30,12 +30,13 @@ def get_request(url: str, params: dict) -> str:
     Returns:
         str: Text received with the response.
     """
+    data = ""  # initialize so we always return a defined value
     try:
         response = requests.get(url, timeout=10, params=params)
         logger.info(f"Response status code: {response.status_code}")
         response.raise_for_status()
         data = response.text
-        logger.info(f"Response from Function App: {response.text}")
+        logger.info(f"Response from Function App: {data}")
 
     except Timeout:
         # Handle timeout specifically
@@ -48,13 +49,23 @@ def get_request(url: str, params: dict) -> str:
     except requests.exceptions.HTTPError as e:
         # Handle HTTP errors (4xx, 5xx)
         logger.error(f"HTTP error occurred: {e}")
-        logger.error(f"Status code: {response.status_code}")
+        # Try to get status code from the exception's response if present
+        status = None
+        if hasattr(e, "response") and e.response is not None:
+            status = e.response.status_code
+        else:
+            try:
+                status = response.status_code  # safe fallback if response exists
+            except Exception:
+                status = None
+        if status is not None:
+            logger.error(f"Status code: {status}")
 
     except RequestException as e:
         # Catch-all for any other requests-related errors
         logger.error(f"Request failed: {e}")
 
-    return data if data else ""
+    return data
 
 
 def main():
