@@ -49,17 +49,7 @@ def get_request(url: str, params: dict) -> str:
     except requests.exceptions.HTTPError as e:
         # Handle HTTP errors (4xx, 5xx)
         logger.error(f"HTTP error occurred: {e}")
-        # Try to get status code from the exception's response if present
-        status = None
-        if hasattr(e, "response") and e.response is not None:
-            status = e.response.status_code
-        else:
-            try:
-                status = response.status_code  # safe fallback if response exists
-            except Exception:
-                status = None
-        if status is not None:
-            logger.error(f"Status code: {status}")
+        logger.error(f"Status code: {response.status_code}")
 
     except RequestException as e:
         # Catch-all for any other requests-related errors
