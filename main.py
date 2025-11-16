@@ -60,10 +60,11 @@ def get_request(url: str, params: dict) -> str:
 
 def main():
     logger.info("Hello from the external-caller-app!")
-    endpoint = "httpexample"
+    endpoint = "alive"
     url = URL_BASE + endpoint
-    params = {"name": "Bjoern"}
+    params = {}
     data = get_request(url, params)
+    logger.info(f"Received response: {data}")
 
 
 if __name__ == "__main__":
