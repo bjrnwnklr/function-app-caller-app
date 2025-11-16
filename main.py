@@ -3,6 +3,7 @@ import os
 import random
 
 import requests
+from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, RequestException, Timeout
 
@@ -20,6 +21,26 @@ URL_BASE = (
 )
 logger.info(f"Function App URL is {CALLER_APP_ENV}: {URL_BASE}")
 
+FUNCTION_APP_CLIENT_ID = os.getenv("FUNCTION_APP_CLIENT_ID")
+
+scope = f"api://{FUNCTION_APP_CLIENT_ID}/user_impersonation"
+
+
+def get_access_token(scopes: str) -> str:
+    credential = DefaultAzureCredential()
+    logger.info(f"Credential aquired. {credential}")
+    token = credential.get_token(scopes=scopes)
+
+    return token.token
+
+
+def get_auth_header(access_token: str) -> dict:
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    return headers
+
 
 def get_request(url: str, params: dict) -> requests.Response:
     """Send a get request to the URL specified.
@@ -31,9 +52,13 @@ def get_request(url: str, params: dict) -> requests.Response:
     Returns:
         requests.Response: Response object received
     """
+    # get access token and generate header
+    access_token = get_access_token(scope)
+    headers = get_auth_header(access_token)
+
     fallback = requests.Response()  # ensure we always return a Response object
     try:
-        resp = requests.get(url, timeout=10, params=params)
+        resp = requests.get(url, timeout=10, headers=headers, params=params)
         logger.debug(f"Response status code: {resp.status_code}")
         resp.raise_for_status()
         logger.debug(f"Response text from Function App: {resp.text}")
