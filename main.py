@@ -21,15 +21,18 @@ URL_BASE = (
 )
 logger.info(f"Function App URL is {CALLER_APP_ENV}: {URL_BASE}")
 
-FUNCTION_APP_CLIENT_ID = os.getenv("FUNCTION_APP_CLIENT_ID")
+FUNCTION_APP_CLIENT_ID = os.getenv("AZURE_FUNCTION_APP_CLIENT_ID")
+AZURE_TENANT_ID = os.getenv("AZURE_TENANT_ID")
 
-scope = f"api://{FUNCTION_APP_CLIENT_ID}/user_impersonation"
+# scope = f"api://{FUNCTION_APP_CLIENT_ID}/user_impersonation"
+scope = f"api://{AZURE_TENANT_ID}/app-fa-auwsevgn-dev/.default"
 
 
 def get_access_token(scopes: str) -> str:
     credential = DefaultAzureCredential()
     logger.info(f"Credential aquired. {credential}")
-    token = credential.get_token(scopes=scopes)
+    logger.info(f"{scopes=}")
+    token = credential.get_token(scopes)
 
     return token.token
 
