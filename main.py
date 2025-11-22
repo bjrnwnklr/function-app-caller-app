@@ -1,161 +1,177 @@
 import logging
 import os
 import random
+import sys
+from datetime import datetime, timedelta
+from typing import Optional
 
 import requests
+from azure.core.credentials import AccessToken
 from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
-from requests.exceptions import ConnectionError, RequestException, Timeout
+from requests.exceptions import RequestException
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(name=__name__)
 
-# load URL BASE from .env file
-load_dotenv()
-CALLER_APP_ENV = os.getenv("CALLER_APP_ENV")
-# adjust based on whether we run the function app locally or on Azure
-URL_BASE = (
-    os.getenv("CALLER_APP_URL_BASE_LOCAL")
-    if CALLER_APP_ENV == "LOCAL"
-    else os.getenv("CALLER_APP_URL_BASE_AZURE")
-)
-logger.info(f"Function App URL is {CALLER_APP_ENV}: {URL_BASE}")
 
-FUNCTION_APP_CLIENT_ID = os.getenv("AZURE_FUNCTION_APP_CLIENT_ID")
-AZURE_TENANT_ID = os.getenv("AZURE_TENANT_ID")
+class FunctionAppClient:
+    # client for authenticating and calling Azure Function App
 
-# scope = f"api://{FUNCTION_APP_CLIENT_ID}/user_impersonation"
-scope = f"api://{AZURE_TENANT_ID}/app-fa-auwsevgn-dev/.default"
-
-
-def get_access_token(scopes: str) -> str:
-    credential = DefaultAzureCredential()
-    logger.info(f"Credential aquired. {credential}")
-    logger.info(f"{scopes=}")
-    token = credential.get_token(scopes)
-
-    return token.token
-
-
-def get_auth_header(access_token: str) -> dict:
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json",
-    }
-    return headers
-
-
-def get_request(url: str, params: dict) -> requests.Response:
-    """Send a get request to the URL specified.
-
-    Args:
-        url (str): URL to send GET request to.
-        params (dict): Dictionary of query parameters.
-
-    Returns:
-        requests.Response: Response object received
-    """
-    # get access token and generate header
-    access_token = get_access_token(scope)
-    headers = get_auth_header(access_token)
-
-    fallback = requests.Response()  # ensure we always return a Response object
-    try:
-        resp = requests.get(url, timeout=10, headers=headers, params=params)
-        logger.debug(f"Response status code: {resp.status_code}")
-        resp.raise_for_status()
-        logger.debug(f"Response text from Function App: {resp.text}")
-        return resp
-
-    except Timeout:
-        # Handle timeout specifically
-        logger.error("Request timed out")
-        fallback.status_code = 408
-        fallback._content = b"Request timed out"
-        return fallback
-
-    except ConnectionError:
-        # Handle connection issues (DNS failure, refused connection, etc.)
-        logger.error("Connection failed")
-        fallback.status_code = 503
-        fallback._content = b"Connection failed"
-        return fallback
-
-    except requests.exceptions.HTTPError as e:
-        # Handle HTTP errors (4xx, 5xx)
-        logger.error(f"HTTP error occurred: {e}")
-        # Prefer the original response if available on the exception
-        if hasattr(e, "response") and e.response is not None:
-            return e.response
-        # otherwise return fallback populated with error info
-        fallback.status_code = (
-            getattr(e.response, "status_code", 500) if hasattr(e, "response") else 500
+    def __init__(self):
+        logger.debug("Initializing FunctionAppClient")
+        load_dotenv()
+        self.env = os.getenv("CALLER_APP_ENV")
+        # adjust based on whether we run the function app locally or on Azure
+        self.url_base = (
+            os.getenv("CALLER_APP_URL_BASE_LOCAL")
+            if self.env == "LOCAL"
+            else os.getenv("CALLER_APP_URL_BASE_AZURE")
         )
-        fallback._content = str(e).encode()
-        return fallback
 
-    except RequestException as e:
-        # Catch-all for any other requests-related errors
-        logger.error(f"Request failed: {e}")
-        fallback.status_code = 400
-        fallback._content = str(e).encode()
-        return fallback
+        function_app_client_id = os.getenv("AZURE_FUNCTION_APP_CLIENT_ID")
 
+        self.scope = f"api://{function_app_client_id}/.default"
 
-def post_request(url: str, payload: dict, params: dict) -> requests.Response:
-    """Send a post request to the provided URL.
+        # initiate credential
+        self._credential = DefaultAzureCredential()
 
-    Args:
-        url (str): URL endpoint to call
-        payload (dict): dictionary to send as body of the POST request.
-            Will be converted to JSON as part of the POST request.
-        params (dict): Dictionary of parameters to send.
+        # token caching
+        self._token_expiry_buffer = timedelta(minutes=5)
+        self._cached_token: Optional[AccessToken] = None
 
-    Returns:
-        requests.Response: requests.Response object with the
-          response received
-    """
-    fallback = requests.Response()  # ensure we always return a Response object
-    try:
-        resp = requests.post(url, json=payload, timeout=10, params=params)
-        logger.debug(f"Response status code: {resp.status_code}")
-        resp.raise_for_status()
-        logger.debug(f"Response text from Function App: {resp.text}")
-        return resp
+        logger.debug(f"Function App URL is {self.env}: {self.url_base}")
 
-    except Timeout:
-        # Handle timeout specifically
-        logger.error("Request timed out")
-        fallback.status_code = 408
-        fallback._content = b"Request timed out"
-        return fallback
+    def _get_access_token(self) -> str:
+        """Get access token, using cached token if not expired.
 
-    except ConnectionError:
-        # Handle connection issues (DNS failure, refused connection, etc.)
-        logger.error("Connection failed")
-        fallback.status_code = 503
-        fallback._content = b"Connection failed"
-        return fallback
+        Returns:
+            str: Azure Access Token
+        """
+        now = datetime.now().timestamp()
 
-    except requests.exceptions.HTTPError as e:
-        # Handle HTTP errors (4xx, 5xx)
-        logger.error(f"HTTP error occurred: {e}")
-        # Prefer the original response if available on the exception
-        if hasattr(e, "response") and e.response is not None:
-            return e.response
-        # otherwise return fallback populated with error info
-        fallback.status_code = (
-            getattr(e.response, "status_code", 500) if hasattr(e, "response") else 500
+        # use cached token if it exists in the token cache and is
+        # not within expiration buffer
+        if (
+            self._cached_token
+            and self._token_expiry_buffer.total_seconds()
+            < self._cached_token.expires_on - now
+        ):
+            logger.debug("Using cached token")
+            return self._cached_token.token
+
+        # token has expired, request a new one
+        logger.debug("Aquiring new token")
+        self._cached_token = self._credential.get_token(self.scope)
+
+        return self._cached_token.token
+
+    def _get_auth_header(self) -> dict:
+        """Generates authentication header with a bearer token.
+
+        Returns:
+            dict: Authentication header with a Bearer token.
+        """
+        headers = {
+            "Authorization": f"Bearer {self._get_access_token()}",
+            "Content-Type": "application/json",
+        }
+        return headers
+
+    def _make_request(
+        self,
+        method: str,
+        endpoint: str,
+        params: Optional[dict] = None,
+        json: Optional[dict] = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """
+        Make HTTP request to Function App.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            endpoint: API endpoint (without base URL)
+            params: Query parameters
+            json: JSON body for POST/PUT requests
+            timeout: Request timeout in seconds
+
+        Returns:
+            requests.Response object
+
+        Raises:
+            RequestException: For any request-related errors
+        """
+        url = f"{self.url_base}/{endpoint}"
+        headers = self._get_auth_header()
+
+        try:
+            response = requests.request(
+                method=method,
+                url=url,
+                headers=headers,
+                params=params or {},
+                json=json,
+                timeout=timeout,
+            )
+
+            logger.debug(f"{method} {endpoint}: {response.status_code}")
+            response.raise_for_status()
+
+            return response
+
+        except requests.exceptions.Timeout:
+            logger.error(f"Request to {endpoint} timed out after {timeout}s")
+            raise
+
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection failed for {endpoint}: {e}")
+            raise
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(
+                f"HTTP {e.response.status_code} error for {endpoint}: {e.response.text}"
+            )
+            raise
+
+        except RequestException as e:
+            logger.error(f"Request to {endpoint} failed: {e}")
+            raise
+
+    def get(
+        self, endpoint: str, params: Optional[dict] = None, **kwargs
+    ) -> requests.Response:
+        """Send GET request to the function app.
+
+        Args:
+            endpoint (str): API endpoint
+            params (Optional[dict], optional): HTTP Request parameters. Defaults to None.
+
+        Returns:
+            requests.Response: Response from the endpoint.
+        """
+        return self._make_request("GET", endpoint, params=params, **kwargs)
+
+    def post(
+        self,
+        endpoint: str,
+        payload: Optional[dict] = None,
+        params: Optional[dict] = None,
+        **kwargs,
+    ) -> requests.Response:
+        """Send POST request to the function app.
+
+        Args:
+            endpoint (str): API endpoint
+            payload (Optional[dict], optional): JSON payload. Defaults to None.
+            params (Optional[dict], optional): HTTP Request paramters. Defaults to None.
+
+        Returns:
+            requests.Response: Response from the endpoint.
+        """
+        return self._make_request(
+            "POST", endpoint, params=params, json=payload, **kwargs
         )
-        fallback._content = str(e).encode()
-        return fallback
-
-    except RequestException as e:
-        # Catch-all for any other requests-related errors
-        logger.error(f"Request failed: {e}")
-        fallback.status_code = 400
-        fallback._content = str(e).encode()
-        return fallback
 
 
 def create_numbers(n: int = 10, digits: int = 8) -> list[int]:
@@ -175,24 +191,27 @@ def create_numbers(n: int = 10, digits: int = 8) -> list[int]:
 
 
 def main():
-    # check if the function app is alive
-    logger.info("Checking alive status of the function app")
-    endpoint = "alive"
-    url = URL_BASE + endpoint
-    params = {}
-    data = get_request(url, params)
-    logger.info(f"Received response: {data.status_code} {data.text}")
+    # create FunctionAppClient instance
+    client = FunctionAppClient()
 
-    # send numbers and see what comes back.
-    logger.info("Sending some numbers")
-    numbers = create_numbers()
-    endpoint = "process_numbers"
-    url = URL_BASE + endpoint
-    params = {}
-    payload = {"numbers": numbers}
-    resp = post_request(url, payload=payload, params=params)
-    logger.info(f"Received response: {resp.status_code} {resp.text}")
+    try:
+        # check if the function app is alive
+        logger.info("Checking alive status of the function app")
+        response = client.get("alive")
+        logger.info(f"Alive check: {response.status_code} {response.text}")
+
+        # send numbers and see what comes back.
+        logger.info("Sending some numbers")
+        numbers = create_numbers()
+        payload = {"numbers": numbers}
+        response = client.post("process_numbers", payload=payload)
+        logger.info(f"Process Numbers: {response.status_code} {response.text}")
+    except RequestException as e:
+        logger.error(f"Request failed: {e}")
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
