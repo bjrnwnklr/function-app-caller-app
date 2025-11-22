@@ -1,3 +1,4 @@
+import argparse
 import json
 import logging
 import os
@@ -191,7 +192,33 @@ def create_numbers(n: int = 10, digits: int = 8) -> list[int]:
     return numbers
 
 
-def main():
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="external-caller-app",
+        description="Call function app and optionally control generated numbers.",
+    )
+    parser.add_argument(
+        "--n",
+        type=int,
+        default=10000,
+        help="How many numbers to generate (default: 10000)",
+    )
+    parser.add_argument(
+        "--m",
+        type=int,
+        default=2000,
+        help="How many numbers to attempt to match/send (default: 2000)",
+    )
+    parser.add_argument(
+        "--digits",
+        type=int,
+        default=5,
+        help="Number of digits in each generated number (default: 5)",
+    )
+    return parser.parse_args()
+
+
+def main(args: argparse.Namespace):
     # create FunctionAppClient instance
     client = FunctionAppClient()
 
@@ -202,9 +229,9 @@ def main():
         logger.info(f"Alive check: {response.status_code} {response.text}")
 
         # send numbers and see what comes back.
-        n = 10000
-        m = 2000
-        digits = 5
+        n = args.n
+        m = args.m
+        digits = args.digits
         logger.info(
             f"GET request to 'process_numbers': {n} numbers to match against {m} numbers, {digits} digits."
         )
@@ -231,4 +258,5 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    args = parse_args()
+    sys.exit(main(args))
