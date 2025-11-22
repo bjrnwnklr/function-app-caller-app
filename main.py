@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import random
@@ -201,11 +202,27 @@ def main():
         logger.info(f"Alive check: {response.status_code} {response.text}")
 
         # send numbers and see what comes back.
-        logger.info("Sending some numbers")
-        numbers = create_numbers()
-        payload = {"numbers": numbers}
+        n = 10000
+        m = 2000
+        digits = 5
+        logger.info(
+            f"GET request to 'process_numbers': {n} numbers to match against {m} numbers, {digits} digits."
+        )
+        numbers = create_numbers(n, digits=digits)
+        payload = {"numbers": numbers, "numbers_to_compare": m, "digits": digits}
+        # print size of payload
+        json_bytes = len(json.dumps(payload).encode("utf-8"))
+        json_mbytes = json_bytes / 1024**2
+        logger.info(f"Size of the payload in MB: {json_mbytes:.4f}")
+        # call the API
         response = client.post("process_numbers", payload=payload)
-        logger.info(f"Process Numbers: {response.status_code} {response.text}")
+
+        # get json object of response
+        response_payload = json.loads(response.text)
+
+        logger.info(
+            f"Process Numbers: {response.status_code} {response_payload['count']}"
+        )
     except RequestException as e:
         logger.error(f"Request failed: {e}")
         return 1
