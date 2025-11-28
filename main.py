@@ -198,22 +198,27 @@ def parse_args() -> argparse.Namespace:
         description="Call function app and optionally control generated numbers.",
     )
     parser.add_argument(
+        "method",
+        choices=["test_webapp", "numbers"],
+        help="Which method to call: 'test_webapp' (alive check) or 'numbers' (process numbers)",
+    )
+    parser.add_argument(
         "--n",
         type=int,
         default=10000,
-        help="How many numbers to generate (default: 10000)",
+        help="How many numbers to generate (default: 10000). Only used with 'numbers' method.",
     )
     parser.add_argument(
         "--m",
         type=int,
         default=2000,
-        help="How many numbers to attempt to match/send (default: 2000)",
+        help="How many numbers to attempt to match/send (default: 2000). Only used with 'numbers' method.",
     )
     parser.add_argument(
         "--digits",
         type=int,
         default=5,
-        help="Number of digits in each generated number (default: 5)",
+        help="Number of digits in each generated number (default: 5). Only used with 'numbers' method.",
     )
     return parser.parse_args()
 
@@ -223,33 +228,44 @@ def main(args: argparse.Namespace):
     client = FunctionAppClient()
 
     try:
-        # check if the function app is alive
-        logger.info("Checking alive status of the function app")
-        response = client.get("alive")
-        logger.info(f"Alive check: {response.status_code} {response.text}")
+        if args.method == "test_webapp":
+            # Simple alive check
+            logger.info("Checking alive status of the function app")
+            response = client.get("alive")
+            logger.info(f"Alive check: {response.status_code} {response.text}")
 
-        # send numbers and see what comes back.
-        n = args.n
-        m = args.m
-        digits = args.digits
-        logger.info(
-            f"GET request to 'process_numbers': {n} numbers to match against {m} numbers, {digits} digits."
-        )
-        numbers = create_numbers(n, digits=digits)
-        payload = {"numbers": numbers, "numbers_to_compare": m, "digits": digits}
-        # print size of payload
-        json_bytes = len(json.dumps(payload).encode("utf-8"))
-        json_mbytes = json_bytes / 1024**2
-        logger.info(f"Size of the payload in MB: {json_mbytes:.4f}")
-        # call the API
-        response = client.post("process_numbers", payload=payload)
+            logger.info("Checking alive status of the web app")
+            response = client.get("test_webapp")
+            logger.info(f"Webapp response: {response.status_code} {response.text}")
 
-        # get json object of response
-        response_payload = json.loads(response.text)
+        elif args.method == "numbers":
+            # First check if app is alive
+            logger.info("Checking alive status of the function app")
+            response = client.get("alive")
+            logger.info(f"Alive check: {response.status_code} {response.text}")
 
-        logger.info(
-            f"Process Numbers: {response.status_code} {response_payload['count']}"
-        )
+            # send numbers and see what comes back.
+            n = args.n
+            m = args.m
+            digits = args.digits
+            logger.info(
+                f"POST request to 'process_numbers': {n} numbers to match against {m} numbers, {digits} digits."
+            )
+            numbers = create_numbers(n, digits=digits)
+            payload = {"numbers": numbers, "numbers_to_compare": m, "digits": digits}
+            # print size of payload
+            json_bytes = len(json.dumps(payload).encode("utf-8"))
+            json_mbytes = json_bytes / 1024**2
+            logger.info(f"Size of the payload in MB: {json_mbytes:.4f}")
+            # call the API
+            response = client.post("process_numbers", payload=payload)
+
+            # get json object of response
+            response_payload = json.loads(response.text)
+
+            logger.info(
+                f"Process Numbers: {response.status_code} {response_payload['count']}"
+            )
     except RequestException as e:
         logger.error(f"Request failed: {e}")
         return 1
