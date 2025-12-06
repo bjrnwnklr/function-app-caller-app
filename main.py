@@ -238,6 +238,10 @@ def main(args: argparse.Namespace):
             response = client.get("test_webapp")
             logger.info(f"Webapp response: {response.status_code} {response.text}")
 
+            logger.info("Getting data from the webapp")
+            response = client.get("get_data")
+            logger.info(f"Webapp response: {response.status_code} {response.text}")
+
         elif args.method == "numbers":
             # First check if app is alive
             logger.info("Checking alive status of the function app")
